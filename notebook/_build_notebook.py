@@ -28,13 +28,13 @@ Webapp local (`webapp/`) sẽ phát hiện runner offline và mở lại noteboo
 code("""
 #@title ⚙️ Cấu hình
 GITHUB_SCOPE = "repo"  #@param ["repo", "org"]
-GITHUB_TARGET = "OWNER/REPO"  #@param {type:"string"}
+GITHUB_TARGET = "toilatrung/nutrimeal"  #@param {type:"string"}
 RUNNER_NAME = "colab-runner"  #@param {type:"string"}
 RUNNER_LABELS = "colab,linux,x64"  #@param {type:"string"}
 RUNNER_GROUP = ""  #@param {type:"string"}
 EPHEMERAL = False  #@param {type:"boolean"}
 TOKEN_SECRET_NAME = "GH_PAT"  #@param {type:"string"}
-VERCEL_URL = ""  #@param {type:"string"}
+VERCEL_URL = "https://colab-gh-runner-vercel.vercel.app"  #@param {type:"string"}
 HEARTBEAT_SECRET_NAME = "HEARTBEAT_SECRET"  #@param {type:"string"}
 HEARTBEAT_INTERVAL = 120  #@param {type:"integer"}
 
