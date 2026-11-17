@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colab Runner Monitor</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#262a33; --text:#e6e8ec; --mute:#8b92a1;
+          --ok:#2fbf71; --warn:#e5a33a; --bad:#e5534b; --accent:#5b8def; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; justify-content:space-between; padding:16px 24px; border-bottom:1px solid var(--line); }
+  h1 { font-size:18px; margin:0; }
+  main { display:grid; grid-template-columns: 1.1fr 1fr; gap:16px; padding:16px 24px; max-width:1300px; margin:auto; }
+  @media (max-width: 900px) { main { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--mute); margin:0 0 12px; }
+  .status { display:flex; align-items:center; gap:14px; }
+  .dot { width:16px; height:16px; border-radius:50%; background:var(--mute); box-shadow:0 0 0 4px #ffffff10; }
+  .dot.online { background:var(--ok); } .dot.busy { background:var(--accent); } .dot.offline { background:var(--bad); }
+  .big { font-size:24px; font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:14px; }
+  .kv { background:#11141a; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .kv b { display:block; font-size:16px; } .kv span { color:var(--mute); font-size:12px; }
+  .btns { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+  button { background:#232835; color:var(--text); border:1px solid var(--line); border-radius:7px; padding:8px 12px; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--accent); } button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger:hover { border-color:var(--bad); }
+  table { width:100%; border-collapse:collapse; } td,th { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); }
+  th { color:var(--mute); font-weight:500; font-size:12px; }
+  .pill { font-size:12px; padding:1px 8px; border-radius:20px; background:#ffffff12; }
+  .pill.online { color:var(--ok); } .pill.offline { color:var(--bad); }
+  #logs { height:330px; overflow:auto; font:12px/1.5 ui-monospace,Consolas,monospace; background:#0b0d11; border-radius:8px; padding:10px; }
+  #logs .warn { color:var(--warn); } #logs .error { color:var(--bad); }
+  form label { display:block; margin:8px 0 2px; color:var(--mute); font-size:12px; }
+  input, select { width:100%; background:#0b0d11; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:7px 9px; font:inherit; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .check { display:flex; align-items:center; gap:8px; margin-top:10px; } .check input { width:auto; }
+  .err { color:var(--bad); margin-top:8px; } .mute { color:var(--mute); }
+  .toggle { display:flex; align-items:center; gap:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ Colab Runner Monitor</h1>
+  <div class="toggle"><label for="auto">Tự động rerun</label><input id="auto" type="checkbox" onchange="saveCfg({auto_rerun:this.checked})" style="width:auto"></div>
+</header>
+<main>
+  <div style="display:grid; gap:16px; align-content:start">
+    <section class="card">
+      <h2>Trạng thái runner</h2>
+      <div class="status"><div id="dot" class="dot"></div>
+        <div><div class="big" id="state">—</div><div class="mute" id="sub">Đang tải…</div></div></div>
+      <div class="grid">
+        <div class="kv"><b id="queued">0</b><span>Job đang chờ</span></div>
+        <div class="kv"><b id="inprog">0</b><span>Đang chạy</span></div>
+        <div class="kv"><b id="reruns">0</b><span>Số lần rerun</span></div>
+      </div>
+      <div class="btns">
+        <button class="primary" onclick="post('/api/rerun')">↻ Rerun Colab</button>
+        <button onclick="post('/api/check')">Kiểm tra ngay</button>
+        <button onclick="post('/api/open')">Mở notebook</button>
+        <button onclick="post('/api/rerun',{login:true})">Đăng nhập Google</button>
+        <button onclick="post('/api/stop-driver')">Đóng trình duyệt</button>
+        <button class="danger" onclick="if(confirm('Xoá mọi runner offline?'))post('/api/cleanup')">Dọn runner offline</button>
+      </div>
+      <div class="err" id="err"></div>
+    </section>
+    <section class="card">
+      <h2>Runner trên GitHub</h2>
+      <table><thead><tr><th>Tên</th><th>Trạng thái</th><th>Busy</th><th>ID</th></tr></thead><tbody id="runners"></tbody></table>
+    </section>
+    <section class="card">
+      <h2>Nhật ký</h2>
+      <div id="logs"></div>
+    </section>
+  </div>
+  <section class="card" style="align-self:start">
+    <h2>Cấu hình</h2>
+    <form id="cfg" onsubmit="event.preventDefault(); saveForm()">
+      <label>GitHub token (PAT) <span id="tokset" class="mute"></span></label>
+      <input name="github_token" type="password" placeholder="để trống = giữ token hiện tại" autocomplete="off">
+      <div class="row2">
+        <div><label>Phạm vi</label><select name="scope"><option value="repo">repo</option><option value="org">org</option></select></div>
+        <div><label>Target (OWNER/REPO hoặc ORG)</label><input name="target"></div>
+      </div>
+      <div class="row2">
+        <div><label>Chế độ</label><select name="mode"><option value="github">github (poll GitHub như cũ)</option><option value="vercel-agent">vercel-agent (nhận lệnh từ Vercel)</option></select></div>
+        <div><label>URL Vercel (mode vercel-agent)</label><input name="vercel_url" placeholder="https://ten-app.vercel.app"></div>
+      </div>
+      <label>Agent token (= AGENT_TOKEN trên Vercel) <span id="agtokset" class="mute"></span></label>
+      <input name="agent_token" type="password" placeholder="để trống = giữ token hiện tại" autocomplete="off">
+      <label>Tên runner (trùng RUNNER_NAME trong notebook)</label><input name="runner_name">
+      <label>URL notebook Colab</label><input name="colab_url">
+      <div class="row2">
+        <div><label>Cách rerun</label><select name="rerun_mode"><option value="playwright">playwright (tự Run all)</option><option value="browser">browser (mở tab, bấm tay)</option></select></div>
+        <div><label>Trình duyệt Playwright</label><select name="browser_channel"><option value="chrome">Chrome</option><option value="msedge">Edge</option><option value="">Chromium đi kèm</option></select></div>
+      </div>
+      <div class="row2">
+        <div><label>Chu kỳ kiểm tra (giây)</label><input name="poll_interval_sec" type="number" min="15"></div>
+        <div><label>Offline bao lâu thì rerun (giây)</label><input name="offline_grace_sec" type="number" min="0"></div>
+      </div>
+      <label>Khoảng cách tối thiểu giữa 2 lần rerun (giây)</label><input name="rerun_cooldown_sec" type="number" min="60">
+      <div class="check"><input type="checkbox" name="only_when_queued" id="owq"><label for="owq" style="margin:0">Chỉ rerun khi có job đang chờ (tiết kiệm quota Colab)</label></div>
+      <div class="btns"><button class="primary" type="submit">Lưu cấu hình</button></div>
+      <p class="mute" id="pw"></p>
+    </form>
+  </section>
+</main>
+<script>
+let filled = false;
+const $ = id => document.getElementById(id);
+const fmt = s => s < 60 ? s + "s" : s < 3600 ? Math.floor(s/60) + " phút" : (s/3600).toFixed(1) + " giờ";
+
+async function post(url, body) {
+  const r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body||{})});
+  const j = await r.json(); if (j.error) $("err").textContent = j.error; else render(j);
+}
+async function saveCfg(o) { await post("/api/config", o); }
+function saveForm() {
+  const f = $("cfg"), o = {};
+  for (const el of f.elements) {
+    if (!el.name) continue;
+    o[el.name] = el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value;
+  }
+  if (!o.github_token) delete o.github_token;
+  if (!o.agent_token) delete o.agent_token;
+  f.github_token.value = ""; f.agent_token.value = ""; saveCfg(o);
+}
+function render(s) {
+  const r = s.runner, c = s.config;
+  let cls = "offline", label = "OFFLINE", sub = r ? "Runner tồn tại nhưng không kết nối" : `Không tìm thấy runner "${c.runner_name}"`;
+  if (r && r.status === "online") { cls = r.busy ? "busy" : "online"; label = r.busy ? "ĐANG CHẠY JOB" : "ONLINE"; sub = "Nhãn: " + r.labels.join(", "); }
+  else if (s.offline_for) sub += ` · offline ${fmt(s.offline_for)}`;
+  $("dot").className = "dot " + cls; $("state").textContent = label;
+  $("sub").textContent = sub + (s.driver_running ? " · trình duyệt Colab đang mở" : "");
+  $("queued").textContent = s.queued; $("inprog").textContent = s.in_progress; $("reruns").textContent = s.rerun_count;
+  $("err").textContent = s.last_error || (c.github_token_set ? "" : "Chưa có GitHub token – điền ở phần Cấu hình.");
+  $("auto").checked = c.auto_rerun;
+  $("runners").innerHTML = s.runners.map(x => `<tr><td>${x.name}</td><td><span class="pill ${x.status}">${x.status}</span></td><td>${x.busy?"✔":""}</td><td class="mute">${x.id}</td></tr>`).join("")
+    || `<tr><td colspan="4" class="mute">Chưa có runner</td></tr>`;
+  const L = $("logs"), atBottom = L.scrollTop + L.clientHeight >= L.scrollHeight - 10;
+  L.innerHTML = s.logs.map(l => `<div class="${l.level}">${l.time}  ${l.msg.replace(/</g,"&lt;")}</div>`).join("");
+  if (atBottom) L.scrollTop = L.scrollHeight;
+  $("tokset").textContent = c.github_token_set ? "(đã lưu)" : "(chưa có)";
+  $("agtokset").textContent = c.agent_token_set ? "(đã lưu)" : "(chưa có)";
+  $("pw").textContent = s.playwright ? "Playwright: đã cài ✔" : "Playwright chưa cài → rerun sẽ mở tab để bạn bấm Run all. Cài: pip install playwright && playwright install chromium";
+  if (!filled) {
+    const f = $("cfg");
+    for (const el of f.elements) if (el.name && el.name in c) el.type === "checkbox" ? el.checked = c[el.name] : el.value = c[el.name];
+    filled = true;
+  }
+}
+async function tick() { try { render(await (await fetch("/api/status")).json()); } catch(e) { $("err").textContent = "Mất kết nối tới server local"; } }
+tick(); setInterval(tick, 5000);
+</script>
+</body>
+</html>

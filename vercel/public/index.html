@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colab Runner Monitor</title>
+<style>
+  :root { --bg:#0e1116; --card:#171b22; --line:#262c36; --fg:#e6e9ef; --mut:#8b94a3;
+          --ok:#3fb950; --bad:#f85149; --unk:#8b94a3; --acc:#58a6ff; }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif }
+  main { max-width:960px; margin:0 auto; padding:16px }
+  h1 { font-size:18px; margin:0 0 12px; display:flex; justify-content:space-between; align-items:center }
+  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)) }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px }
+  .card h2 { margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut) }
+  .big { font-size:28px; font-weight:700 }
+  .ALIVE { color:var(--ok) } .DEAD { color:var(--bad) } .UNKNOWN { color:var(--unk) }
+  .row { display:flex; justify-content:space-between; gap:8px; padding:3px 0; border-bottom:1px dashed var(--line) }
+  .row:last-child { border:0 } .row span:first-child { color:var(--mut) }
+  .bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin:2px 0 6px }
+  .bar i { display:block; height:100%; background:var(--acc) }
+  button { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:9px 12px; font:inherit; cursor:pointer }
+  button:hover { border-color:var(--acc) } button.pri { background:var(--acc); color:#04121f; border-color:var(--acc); font-weight:600 }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 }
+  input { width:100%; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:10px; font:inherit }
+  #login { max-width:340px; margin:20vh auto 0 } #login .card { display:grid; gap:10px }
+  .err { color:var(--bad); min-height:1.2em; font-size:13px }
+  svg { width:100%; height:70px; display:block } .mut { color:var(--mut); font-size:13px }
+  .pill { padding:1px 8px; border-radius:99px; font-size:12px; border:1px solid var(--line) }
+  .on { color:var(--ok) } .off { color:var(--bad) }
+  [hidden] { display:none !important }
+</style>
+</head>
+<body>
+<main>
+  <section id="login" hidden>
+    <div class="card">
+      <h1>🔐 Colab Runner Monitor</h1>
+      <input id="pw" type="password" placeholder="Mật khẩu" autocomplete="current-password">
+      <button class="pri" id="btnLogin">Đăng nhập</button>
+      <div class="err" id="loginErr"></div>
+    </div>
+  </section>
+
+  <section id="app" hidden>
+    <h1><span>📡 Colab Runner Monitor</span><button id="btnLogout">Đăng xuất</button></h1>
+    <div class="grid">
+      <div class="card"><h2>Trạng thái</h2>
+        <div class="big" id="st">…</div>
+        <div class="mut" id="stSince"></div>
+        <div class="row"><span>Heartbeat cuối</span><b id="hbAge">—</b></div>
+        <div class="row"><span>Phiên còn (ước tính)</span><b id="remain">—</b></div>
+        <div class="row"><span>Đã chạy</span><b id="uptime">—</b></div>
+        <div class="row"><span>Cảnh báo</span><b id="muteState">bật</b></div>
+      </div>
+      <div class="card"><h2>Runner</h2>
+        <div class="row"><span>Tên</span><b id="rName">—</b></div>
+        <div class="row"><span>Tiến trình</span><b id="rState">—</b></div>
+        <div class="row"><span>Busy</span><b id="rBusy">—</b></div>
+        <div class="row"><span>Job hiện tại</span><b id="rJob">—</b></div>
+        <div class="row"><span>GitHub</span><b id="ghState">—</b></div>
+        <div class="row"><span>Job đang chờ</span><b id="ghQueued">—</b></div>
+        <div class="row"><span>Lệnh rerun chờ agent</span><b id="qLen">0</b></div>
+      </div>
+      <div class="card"><h2>Tài nguyên</h2>
+        <div id="res"></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="pri" id="btnColab">▶️ Mở Colab</button>
+      <button id="btnRerun">🔁 Rerun (đẩy queue)</button>
+      <button id="btnCleanup">🧹 Dọn runner offline</button>
+      <button id="btnMute">🔕 Tắt báo 1h</button>
+      <button id="btnRefresh">⟳ Làm mới</button>
+    </div>
+    <div class="err" id="msg"></div>
+
+    <div class="grid">
+      <div class="card"><h2>24 giờ qua – CPU / RAM / GPU (%)</h2>
+        <svg id="spark" viewBox="0 0 300 70" preserveAspectRatio="none"></svg>
+        <div class="mut"><span style="color:#58a6ff">━</span> CPU &nbsp;<span style="color:#3fb950">━</span> RAM &nbsp;<span style="color:#d29922">━</span> GPU &nbsp;<span style="color:#f8514955">▮</span> mất heartbeat</div>
+      </div>
+      <div class="card"><h2>Runner trên GitHub</h2><div id="runners" class="mut">—</div></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let data = null, timer = null, colabUrl = '';
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { method: opts.method || 'GET', credentials: 'same-origin',
+    headers: opts.body ? { 'content-type': 'application/json' } : undefined,
+    body: opts.body ? JSON.stringify(opts.body) : undefined });
+  if (r.status === 401) { showLogin(); throw new Error('401'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+function showLogin() { clearInterval(timer); $('app').hidden = true; $('login').hidden = false; $('pw').focus(); }
+function showApp() { $('login').hidden = true; $('app').hidden = false; }
+
+function dur(s) {
+  if (s == null) return '—';
+  s = Math.max(0, Math.round(s));
+  if (s < 60) return s + ' giây';
+  const m = Math.floor(s / 60); if (m < 60) return m + ' phút';
+  return Math.floor(m / 60) + ' giờ ' + (m % 60) + ' phút';
+}
+const pct = (v) => v == null ? '—' : Math.round(v) + '%';
+const setText = (id, v) => { $(id).textContent = v; };
+
+function bar(label, v, extra = '') {
+  const w = v == null ? 0 : Math.min(100, Math.max(0, v));
+  return `<div class="row"><span>${label}</span><b>${pct(v)}${extra}</b></div><div class="bar"><i style="width:${w}%"></i></div>`;
+}
+
+function render(d) {
+  data = d; colabUrl = d.colab_url || '';
+  const status = d.state.status.toUpperCase();
+  const el = $('st'); el.textContent = status; el.className = 'big ' + status;
+  setText('stSince', 'từ ' + new Date(d.state.since).toLocaleString('vi-VN'));
+  const age = d.last ? Math.round((Date.now() - d.last.time) / 1000) : null;
+  setText('hbAge', age == null ? 'chưa có' : dur(age) + ' trước');
+  setText('remain', d.remaining_sec == null ? '—' : '~' + dur(d.remaining_sec - Math.max(0, age - d.heartbeat_age_sec)));
+  setText('uptime', dur(d.last?.session_uptime_sec));
+  const muted = d.state.muted_until > Date.now();
+  setText('muteState', muted ? 'tắt đến ' + new Date(d.state.muted_until).toLocaleTimeString('vi-VN') : 'bật');
+  $('btnMute').textContent = muted ? '🔔 Bật báo lại' : '🔕 Tắt báo 1h';
+
+  const l = d.last || {};
+  setText('rName', l.runner_name || d.runner_name || '—');
+  setText('rState', l.runner_state || '—');
+  setText('rBusy', l.runner_busy == null ? '—' : (l.runner_busy ? 'đang chạy job' : 'rảnh'));
+  setText('rJob', l.current_job || '—');
+  const gr = d.github.runner;
+  setText('ghState', d.github.error ? 'lỗi: ' + d.github.error : gr ? gr.status + (gr.busy ? ' (busy)' : '') : 'không tồn tại');
+  setText('ghQueued', d.github.queued ?? '—');
+  setText('qLen', d.queue.length);
+
+  let res = bar('CPU', l.cpu) + bar('RAM', l.mem) + bar('Disk /content', l.disk);
+  for (const g of l.gpus || []) {
+    res += bar('GPU ' + (g.name || ''), g.util, g.temp_c != null ? ' · ' + g.temp_c + '°C' : '');
+    if (g.mem_total_mb) res += bar('VRAM', g.mem_used_mb / g.mem_total_mb * 100, ` (${g.mem_used_mb}/${g.mem_total_mb} MB)`);
+  }
+  $('res').innerHTML = l.cpu == null && l.mem == null ? '<span class="mut">Chưa có dữ liệu</span>' : res;
+
+  $('runners').innerHTML = d.github.runners.length
+    ? d.github.runners.map((r) => `<div class="row"><span>${esc(r.name)}</span><b class="${r.status === 'online' ? 'on' : 'off'}">${esc(r.status)}${r.busy ? ' · busy' : ''}</b></div>`).join('')
+    : 'Không có runner';
+  spark(d.history);
+}
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function spark(h) {
+  const svg = $('spark'); const W = 300, H = 70, now = Date.now(), span = 24 * 3600 * 1000;
+  const x = (t) => Math.max(0, Math.min(W, (t - (now - span)) / span * W));
+  const y = (v) => H - 2 - (Math.min(100, Math.max(0, v)) / 100) * (H - 4);
+  let out = '';
+  // vùng mất heartbeat: khoảng cách > 5 phút giữa hai điểm liên tiếp
+  for (let i = 1; i < h.length; i++) if (h[i].t - h[i - 1].t > 300000)
+    out += `<rect x="${x(h[i - 1].t)}" y="0" width="${Math.max(1, x(h[i].t) - x(h[i - 1].t))}" height="${H}" fill="#f8514933"/>`;
+  if (h.length) { const lastT = h[h.length - 1].t; if (now - lastT > 300000) out += `<rect x="${x(lastT)}" y="0" width="${W - x(lastT)}" height="${H}" fill="#f8514933"/>`; }
+  for (const [k, c] of [['cpu', '#58a6ff'], ['mem', '#3fb950'], ['gpu', '#d29922']]) {
+    let p = '', pen = false;
+    for (const s of h) {
+      if (s[k] == null) { pen = false; continue; }
+      p += (pen ? 'L' : 'M') + x(s.t).toFixed(1) + ' ' + y(s[k]).toFixed(1); pen = true;
+    }
+    if (p) out += `<path d="${p}" fill="none" stroke="${c}" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`;
+  }
+  svg.innerHTML = out || '';
+}
+
+async function refresh() {
+  try { render(await api('/api/status')); setText('msg', ''); }
+  catch (e) { if (e.message !== '401') setText('msg', 'Lỗi tải: ' + e.message); }
+}
+function start() { showApp(); refresh(); clearInterval(timer); timer = setInterval(refresh, 15000); }
+
+async function act(fn, okMsg) {
+  try { const r = await fn(); setText('msg', okMsg(r)); await refresh(); }
+  catch (e) { if (e.message !== '401') setText('msg', 'Lỗi: ' + e.message); }
+}
+
+$('btnLogin').onclick = async () => {
+  setText('loginErr', '');
+  try { await api('/api/login', { method: 'POST', body: { password: $('pw').value } }); $('pw').value = ''; start(); }
+  catch (e) { if (e.message !== '401') setText('loginErr', 'Sai mật khẩu hoặc bị khoá tạm'); else setText('loginErr', 'Sai mật khẩu'); showLogin(); }
+};
+$('pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnLogin').click(); });
+$('btnLogout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); showLogin(); };
+$('btnRefresh').onclick = refresh;
+$('btnColab').onclick = () => { if (colabUrl) window.open(colabUrl, '_blank', 'noopener'); else setText('msg', 'Chưa đặt COLAB_URL'); };
+$('btnRerun').onclick = () => act(() => api('/api/rerun', { method: 'POST' }), () => 'Đã đẩy lệnh rerun cho agent local. Không có agent thì bấm "Mở Colab".');
+$('btnCleanup').onclick = () => act(() => api('/api/cleanup', { method: 'POST' }), (r) => `Đã xoá ${r.removed}/${r.total} runner offline`);
+$('btnMute').onclick = () => {
+  const muted = data && data.state.muted_until > Date.now();
+  act(() => api('/api/mute', { method: 'POST', body: { minutes: muted ? 0 : 60 } }), () => muted ? 'Đã bật lại cảnh báo' : 'Đã tắt cảnh báo 1 giờ');
+};
+
+(async () => { try { await api('/api/status'); start(); } catch { /* showLogin đã gọi nếu 401 */ } })();
+</script>
+</body>
+</html>

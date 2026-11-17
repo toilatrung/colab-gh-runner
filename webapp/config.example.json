@@ -1,0 +1,20 @@
+{
+  "github_token": "",
+  "scope": "repo",
+  "target": "OWNER/REPO",
+  "runner_name": "colab-runner",
+  "colab_url": "https://colab.research.google.com/github/OWNER/REPO/blob/main/colab/colab_github_runner.ipynb",
+  "rerun_mode": "playwright",
+  "browser_channel": "chrome",
+  "mode": "github",
+  "vercel_url": "",
+  "agent_token": "",
+  "agent_poll_sec": 30,
+  "auto_rerun": true,
+  "only_when_queued": false,
+  "poll_interval_sec": 60,
+  "offline_grace_sec": 180,
+  "rerun_cooldown_sec": 600,
+  "host": "127.0.0.1",
+  "port": 8765
+}

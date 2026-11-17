@@ -1,0 +1,2 @@
+# Server chỉ cần Python stdlib. Playwright là tuỳ chọn để tự động "Run all" trên Colab.
+playwright>=1.45

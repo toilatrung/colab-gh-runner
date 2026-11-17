@@ -1,0 +1,15 @@
+{
+  "name": "colab-runner-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Giám sát Colab self-hosted runner: heartbeat + cảnh báo Telegram",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "vercel dev",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.34.0"
+  }
+}
